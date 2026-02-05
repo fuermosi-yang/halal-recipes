@@ -1954,13 +1954,23 @@
                     loadFromSupabase();
                     loadOrdersFromSupabase();
 
-                    // 监听订单变化
-                    const channel = supabase
-                        .channel('orders-channel')
-                        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-                            loadOrdersFromSupabase();
-                        })
-                        .subscribe();
+                    // 监听订单变化（添加错误处理）
+                    try {
+                        const channel = supabase
+                            .channel('orders-channel')
+                            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                                loadOrdersFromSupabase();
+                            })
+                            .subscribe((status) => {
+                                if (status === 'SUBSCRIBED') {
+                                    console.log('实时订阅成功');
+                                } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                                    console.log('订阅关闭或出错，不影响使用');
+                                }
+                            });
+                    } catch (err) {
+                        console.warn('实时订阅初始化失败，不影响基本功能:', err);
+                    }
                 });
 
                 return {
