@@ -6,7 +6,52 @@
     <title>✨ 美味小厨娘 ✨</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Supabase CDN 多重备用方案 -->
+    <script>
+        window.supabaseCDNLoaded = false;
+        window.supabaseLoadAttempts = 0;
+
+        function loadMainCDN() {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+            script.crossorigin = 'anonymous';
+            script.onload = function() {
+                console.log('✅ Supabase 主 CDN 加载成功');
+                window.supabaseCDNLoaded = true;
+            };
+            script.onerror = function() {
+                console.warn('⚠️ 主 CDN 失败，尝试备用');
+                window.supabaseLoadAttempts++;
+                loadBackupCDN();
+            };
+            document.head.appendChild(script);
+        }
+
+        function loadBackupCDN() {
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';
+            script.crossorigin = 'anonymous';
+            script.onload = function() {
+                console.log('✅ Supabase 备用 CDN 加载成功');
+                window.supabaseCDNLoaded = true;
+            };
+            script.onerror = function() {
+                console.error('❌ 所有 CDN 加载失败');
+                window.supabaseCDNLoaded = false;
+                window.showCDNError();
+            };
+            document.head.appendChild(script);
+        }
+
+        window.showCDNError = function() {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:linear-gradient(135deg,#ff6b6b 0%,#ee5a6f 100%);color:white;padding:20px;text-align:center;z-index:10000;font-family:"Noto Sans SC",sans-serif;box-shadow:0 5px 20px rgba(0,0,0,0.3);';
+            errorDiv.innerHTML = '<h3 style="margin-bottom:10px;">⚠️ 实时同步功能不可用</h3><p style="opacity:0.9;">无法连接到服务器，请刷新页面重试</p><button onclick="location.reload()" style="margin-top:15px;padding:12px 30px;background:white;color:#ee5a6f;border:none;border-radius:25px;cursor:pointer;font-weight:bold;font-size:16px;">🔄 刷新页面</button>';
+            document.body.insertBefore(errorDiv, document.body.firstChild);
+        };
+
+        loadMainCDN();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
     <style>
         * {
@@ -1585,6 +1630,13 @@
 
                 const loadFromSupabase = async () => {
                     try {
+                        // 检查 Supabase CDN 是否加载成功
+                        if (!window.supabaseCDNLoaded || !supabase) {
+                            console.warn('⚠️ Supabase CDN 未加载，无法实时同步');
+                            loadFromLocalStorage();
+                            return;
+                        }
+
                         const { data, error } = await supabase
                             .from('recipes')
                             .select('*')
@@ -1594,7 +1646,6 @@
                         recipes.value = data || [];
                     } catch (err) {
                         console.error('加载数据失败:', err);
-                        // 如果Supabase失败，回退到本地存储
                         loadFromLocalStorage();
                     }
                 };
@@ -1954,23 +2005,13 @@
                     loadFromSupabase();
                     loadOrdersFromSupabase();
 
-                    // 监听订单变化（添加错误处理）
-                    try {
-                        const channel = supabase
-                            .channel('orders-channel')
-                            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-                                loadOrdersFromSupabase();
-                            })
-                            .subscribe((status) => {
-                                if (status === 'SUBSCRIBED') {
-                                    console.log('实时订阅成功');
-                                } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-                                    console.log('订阅关闭或出错，不影响使用');
-                                }
-                            });
-                    } catch (err) {
-                        console.warn('实时订阅初始化失败，不影响基本功能:', err);
-                    }
+                    // 监听订单变化
+                    const channel = supabase
+                        .channel('orders-channel')
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                            loadOrdersFromSupabase();
+                        })
+                        .subscribe();
                 });
 
                 return {
